@@ -4,20 +4,9 @@ const canvas = doc.getElementById("game");
 const canvasCtx = canvas.getContext("2d");
 const gameState = {};
 
-// class Player
-// {
-//     constructor(name, avatar) {
-//         this.name = name;
-//         this.avatar = avatar;
-//         this.health = 1000;
-//         this.minions = [];
-//     }
-// }
-
 class GameObject
 {
-    constructor(name) {
-        this.name = name;
+    constructor() {
         this.components = [];
         this.location = { x: 0, y: 0 };
         this.size = { height: 1, width: 1 };
@@ -63,8 +52,8 @@ class RectRenderer
 
 class TextGameObject extends GameObject
 {
-    constructor(name, text = null, font = "20px Arial", textAlign = "left", textBaseline = "top", style = "black", fill = true) {
-        super(name);
+    constructor(text = null, font = "20px Arial", textAlign = "left", textBaseline = "top", style = "black", fill = true) {
+        super();
         this.text = text;
         this.renderer = new TextRenderer(font, textAlign, textBaseline, style, fill);
     }
@@ -98,52 +87,38 @@ class TextRenderer
     }
 }
 
-// class Minion extends GameObject
-// {
-//     constructor(name, avatar, type, specialization, rarity, phy_attack, phy_defense, magic_attack, magic_defense, health, mana, attack_speed) {
-//         super(name);
-//         this.avatar = avatar;
-//         this.type = type;
-//         this.specialization = specialization;
-//         this.rarity = rarity;
-//         this.physicalAttack = phy_attack;
-//         this.physicalDefense = phy_defense;
-//         this.magicAttack = magic_attack;
-//         this.magicDefense = magic_defense;
-//         this.health = health;
-//         this.mana = mana;
-//         this.attackSpeed = attack_speed;
-//         this.onBoard = false;
-//         this.size.height = 50;
-//         this.size.width = 50;
-//     }
-// }
-
-const mainGameLoop = function() {
-    update(gameState);
-    render(gameState);
-    requestAnimationFrame(mainGameLoop);
-};
-const update = function(state) {
-    updateStats(state.stats);
-    gameState.scene.update();
-};
-const updateStats = function(stats) {
-    stats.frameCounter += 1;
-
-    const now = performance.now();
-    const first = stats.times.shift();
-    stats.frameRate = 1000.0 * (stats.times.length + 1) / (now - first);
-    stats.times.push(now);
+class Player extends GameObject
+{
+    constructor(name, avatar) {
+        super();
+        this.name = name;
+        this.avatar = avatar;
+        this.health = 1000;
+        this.minions = [];
+    }
 }
-const render = function(state) {
-    state.scene.updateScreenLocations({ x: 0, y: 0 });
-    state.scene.render();
-};
-// const drawGame = function(state) {
-//     renderBoard(state);
-//     renderPlayers(state);
-// };
+
+class Minion extends GameObject
+{
+    constructor(name, avatar, type, specialization, rarity, phy_attack, phy_defense, magic_attack, magic_defense, health, mana, attack_speed) {
+        super();
+        this.name = name;
+        this.avatar = avatar;
+        this.type = type;
+        this.specialization = specialization;
+        this.rarity = rarity;
+        this.physicalAttack = phy_attack;
+        this.physicalDefense = phy_defense;
+        this.magicAttack = magic_attack;
+        this.magicDefense = magic_defense;
+        this.health = health;
+        this.mana = mana;
+        this.attackSpeed = attack_speed;
+        this.state = "";
+    }
+}
+
+
 // const renderBoard = function(state) {
 //     const middle = canvasCtx.canvas.width / 2;
 //     const width = 1000;
@@ -211,60 +186,19 @@ const render = function(state) {
 //         locationLeft += 70;
 //     });
 // };
-// const drawStats = function(stats) {
-//     if (stats.frameCounter < 1) return;
-//     canvasCtx.textAlign = "left";
-//     canvasCtx.textBaseline = "top";
-//     canvasCtx.fillStyle = "black";
-//     canvasCtx.font = "10px monospace";
-//     let bottom = canvasCtx.canvas.height;
-//     canvasCtx.fillText("  fps: " + stats.frameRate.toPrecision(4), 10, bottom - 30);
-//     canvasCtx.fillText("frame: " + stats.frameCounter, 10, bottom - 15);
-// };
-const resizeCanvas = function() {
-    canvas.width  = win.innerWidth;
-    canvas.height = win.innerHeight;
-    gameState.scene.size.width = win.innerWidth;
-    gameState.scene.size.height = win.innerHeight;
-}
+
 
 const runGame = function() {
     initializeGameState();
-    resizeCanvas();
-    win.addEventListener("resize", resizeCanvas);
     mainGameLoop();
 };
 const initializeGameState = function() {
     const time = performance.now();
     gameState.stats = { 
         frameCounter: 0, 
-        times: [time, time, time, time, time, time, time, time, time, time, time, time, time, time, time],
+        times: [time, time, time, time, time],
         frameRate: 0,
     };
-
-    gameState.scene = new GameObject("GameScene");
-        gameState.scene.renderer = new RectRenderer("lightgray");
-
-    const statsBox = new GameObject("StatsBox");
-        statsBox.location.x = 20;
-        statsBox.location.y = 20;
-        statsBox.size.width = 100;
-        statsBox.size.height = 35;
-        statsBox.renderer = new RectRenderer("darkgray");
-        let fpsText = new TextGameObject("FpsText", "  fps: 0.00", font = "10px monospace", style = "black");
-            fpsText.location.x = 5;
-            fpsText.location.y = 5;
-            statsBox.components.push(fpsText);
-        let frameCounterText = new TextGameObject("FrameCounterText", "frame: 0", font = "10px monospace", style = "black");
-            frameCounterText.location.x = 5;
-            frameCounterText.location.y = 20;
-            statsBox.components.push(frameCounterText);
-        statsBox.updates.push(gObj => {
-            fpsText.setText("  fps: " + gameState.stats.frameRate.toPrecision(4));
-            frameCounterText.setText("frame: " + gameState.stats.frameCounter);
-        });
-    gameState.scene.components.push(statsBox);
-
 
     // gameState.player1 = new Player("player", "🐵");
     // gameState.player2 = new Player("computer", "🐷");
@@ -301,5 +235,54 @@ const initializeGameState = function() {
     // gameState.player2.minions.push(gameState.minions[3]);
     // gameState.player2.minions.push(gameState.minions[4]);
     // gameState.player2.minions.push(gameState.minions[5]);
+
+    var scene = new GameObject();
+        scene.renderer = new RectRenderer("lightgray");
+        scene.size.width = canvas.width;
+        scene.size.height = canvas.height;
+    gameState.scene = scene;
+
+    const statsBox = new GameObject();
+        statsBox.location = {x:5,y:580};
+        statsBox.size = {width:100,height:20};
+        let fpsText = new TextGameObject("fps: 0.00", font = "10px monospace", style = "black");
+            fpsText.location = {x:5,y:5};
+            statsBox.components.push(fpsText);
+        let frameCounterText = new TextGameObject("frame: 0", font = "10px monospace", style = "black");
+            frameCounterText.location = {x:75,y:5};
+            statsBox.components.push(frameCounterText);
+        statsBox.updates.push(gObj => {
+            fpsText.setText("fps: " + gameState.stats.frameRate.toPrecision(4));
+            frameCounterText.setText("frame: " + gameState.stats.frameCounter);
+        });
+    scene.components.push(statsBox);
+
+    const centerTop = new GameObject();
+        centerTop.location = {x: scene.size.width/2,y:0};
+    scene.components.push(centerTop);
+
+    const heroBox = new GameObject();
+        heroBox.location = {x:-500,y:0};
+        heroBox.size = {width:1000,height:140};
+        heroBox.renderer = new RectRenderer("darkgray");
+    centerTop.components.push(heroBox);
 };
+const mainGameLoop = function() {
+    // update
+    updateStats(gameState.stats);
+    gameState.scene.update();
+    // render
+    gameState.scene.updateScreenLocations({ x: 0, y: 0 });
+    gameState.scene.render();
+    // loop
+    requestAnimationFrame(mainGameLoop);
+};
+const updateStats = function(stats) {
+    stats.frameCounter += 1;
+
+    const now = performance.now();
+    const first = stats.times.shift();
+    stats.frameRate = 1000.0 * (stats.times.length + 1) / (now - first);
+    stats.times.push(now);
+}
 runGame();
