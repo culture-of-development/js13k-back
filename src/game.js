@@ -1,5 +1,6 @@
-
-const canvas = document.getElementById("game");
+const win = window;
+const doc = document;
+const canvas = doc.getElementById("game");
 const canvasCtx = canvas.getContext("2d");
 const gameState = {};
 
@@ -62,7 +63,8 @@ const updateStats = function(stats) {
 }
 const draw = function(state) {
     // clear
-    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+    canvasCtx.fillStyle = "lightgray";
+    canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
     // draw main
     drawGame(state);
     // draw stats
@@ -125,10 +127,10 @@ const drawStats = function(stats) {
     canvasCtx.fillText("frame: " + stats.frameCounter, 10, bottom - 15);
 };
 const resizeCanvas = function() {
-    canvas.width  = window.innerWidth;
-    canvas.height = window.innerHeight;
+    canvas.width  = win.innerWidth;
+    canvas.height = win.innerHeight;
 }
-window.addEventListener("resize", resizeCanvas);
+win.addEventListener("resize", resizeCanvas);
 
 const runGame = function() {
     resizeCanvas();
