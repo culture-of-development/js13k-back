@@ -12,23 +12,38 @@ class GameObject
         this.size = { height: 1, width: 1 };
         this.screenLocation = { x: 0, y: 0 };
         this.renderer = null;
-        this.updates = [];
+        this.updateTasks = [];
+        this.parent = null;
+    }
+
+    addUpdateTask(task) {
+        this.updateTasks.push(task);
     }
 
     update() {
-        this.updates.forEach(task => task(this));
+        this.updateTasks.forEach(task => task(this));
         this.components.forEach(c => c.update());
     }
 
-    updateScreenLocations(relativeLocation) {
-        this.screenLocation.x = this.location.x + relativeLocation.x;
-        this.screenLocation.y = this.location.y + relativeLocation.y;
-        this.components.forEach(c => c.updateScreenLocations(this.screenLocation));
+    render(relativeScreenLocation) {
+        // update screen location
+        this.screenLocation.x = this.location.x + relativeScreenLocation.x;
+        this.screenLocation.y = this.location.y + relativeScreenLocation.y;
+        if (this.renderer) this.renderer.render(this);
+        this.components.forEach(c => c.render(this.screenLocation));
     }
 
-    render() {
-        if (this.renderer) this.renderer.render(this);
-        this.components.forEach(c => c.render());
+    addComponent(gameObject) {
+        if (gameObject.parent) {
+            gameObject.parent.removeComponent(gameObject);
+        }
+        this.components.push(gameObject);
+        gameObject.parent = this;
+    }
+
+    removeComponent(gameObject) {
+        arrayRemove(this.components, gameObject);
+        gameObject.parent = null;
     }
 }
 
@@ -98,6 +113,16 @@ class Player extends GameObject
         this.minions = [];
         this.colorIdentifier = colorIdentifier;
         this.renderer = new PlayerRenderer();
+        this.reserve = new PlayerReserve(this);
+    }
+
+    addMinion(minion) {
+        let added = this.reserve.addMinion(minion);
+        if (added) {
+            this.minions.push(minion);
+            minion.owner = this;
+        }
+        return added;
     }
 }
 
@@ -152,12 +177,25 @@ class PlayerReserve extends GameObject
         this.renderer = new PlayerReserveRenderer(player.colorIdentifier);
 
         const size = {width: 50,height:50};
+        this.slots = [];
         for(let i = 0; i < 3; i++) {
             const slot = new PlayerReserveSlot();
                 slot.size = size;
                 slot.location = {x:i*(size.width+PlayerReservePadding),y:0};
-            this.components.push(slot);
+            this.slots.push(slot);
+            this.addComponent(slot);
         }
+    }
+
+    addMinion(minion) {
+        for(let i = 0; i < this.slots.length; i++) {
+            let slot = this.slots[i];
+            if (!slot.isOccupied()) {
+                slot.setMinion(minion);
+                return true;
+            }
+        }
+        return false;
     }
 }
 
@@ -166,6 +204,15 @@ class PlayerReserveSlot extends GameObject
     constructor() {
         super();
         this.renderer = new RectRenderer("black", false);
+        this.minion = null;
+    }
+
+    setMinion(minion) {
+        this.addComponent(minion);
+    }
+
+    isOccupied() {
+        return this.components.length > 0;
     }
 }
 
@@ -200,8 +247,9 @@ class Minion extends GameObject
         this.health = health;
         this.mana = mana;
         this.attackSpeed = attack_speed;
-        this.state = "unused";
+        this.size = {height:50,width:50};
         this.renderer = new MinionRenderer();
+        this.owner = null;
     }
 }
 
@@ -245,7 +293,42 @@ class BoardRenderer
 
 const runGame = function() {
     initializeGameState();
+    initializeInteraction();
     mainGameLoop();
+};
+const initializeInteraction = function() {
+    canvas.addEventListener('selectstart', function(e) { e.preventDefault(); return false; }, false);
+    const drag = { object: null, originalContainer: null, originalLocation: null };
+    const startDrag = function(gameObject, mouseCoords) {
+        drag.object = gameObject;
+        drag.originalLocation = gameObject.location;
+        drag.originalContainer = gameObject.parent;
+        gameState.mouseObject.addComponent(gameObject);
+        let sl = gameObject.screenLocation;
+        gameObject.location = {x:sl.x-mouseCoords.x,y:sl.y-mouseCoords.y};
+    };
+    canvas.addEventListener('mousedown', function(e) {
+        const mouseCoords = {x:e.offsetX, y:e.offsetY};
+        let obj = gameState.getInteractableObject(mouseCoords);
+        if (obj && obj.owner == gameState.player1 && obj.parent != gameState.mouseObject) {
+            startDrag(obj, mouseCoords);
+        }
+    });
+    canvas.addEventListener('mousemove', function(e) {
+        gameState.mouseObject.location = {x:e.offsetX, y:e.offsetY};
+    });
+    canvas.addEventListener('mouseup', function(e) {
+        if (drag.object == null) return;
+        drag.originalContainer.addComponent(drag.object);
+        drag.object.location = drag.originalLocation;
+        drag.object = null;
+    });
+};
+const arrayRemove = function(array, value) {
+    var index = array.indexOf(value);
+    if (index > -1) {
+        array.splice(index, 1);
+    }
 };
 const initializeGameState = function() {
     const time = performance.now();
@@ -255,10 +338,12 @@ const initializeGameState = function() {
         frameRate: 0,
     };
 
+    gameState.mouseObject = new GameObject();
+
     const p1 = gameState.player1 = new Player("player", "😃", "wheat");
     const p2 = gameState.player2 = new Player("computer", "🧠", "lavender");
 
-    gameState.minions = [
+    const minions = gameState.minions = [
         new Minion("Fuzzy", "🦍", "Implication", "Virus", "Common", 1918, 900, 1180, 800, 4028, 495, 1.49),
         new Minion("Boole", "🐕", "Implication", "Modeler", "Common", 1475, 1300, 1328, 900, 6713, 495, 1.07),
         new Minion("Proof", "💦", "Implication", "Engineer", "Epic", 1711, 1160, 2994, 1595, 5191, 1121, 1.73),
@@ -285,6 +370,21 @@ const initializeGameState = function() {
         new Minion("Religion", "🦈", "Concept", "Dormant", "Common", 1100, 1575, 1000, 2625, 10125, 900, 0.81),
     ];
 
+    gameState.getInteractableObject = function(coords) {
+        for(let i = 0; i < minions.length; i++) {
+            let minion = minions[i];
+            //if (minion.state != "reserve") continue;
+            let x = coords.x;
+            let y = coords.y;
+            let sl = minion.screenLocation;
+            let size = minion.size;
+            if (x < sl.x || x > (sl.x + size.width)) continue;
+            if (y < sl.y || y > (sl.y + size.height)) continue;
+            return minion;
+        }
+        return null;
+    };
+
     var scene = new GameObject();
         scene.renderer = new RectRenderer("gainsboro");
         scene.size.width = canvas.width;
@@ -296,77 +396,79 @@ const initializeGameState = function() {
         statsBox.size = {width:100,height:20};
         let fpsText = new TextGameObject("fps: 0.00", "10px monospace", "left", "top", "black");
             fpsText.location = {x:5,y:5};
-            statsBox.components.push(fpsText);
-        statsBox.updates.push(gObj => fpsText.setText("fps: " + gameState.stats.frameRate.toPrecision(4)));
-    scene.components.push(statsBox);
+            statsBox.addComponent(fpsText);
+        statsBox.addUpdateTask(gObj => fpsText.setText("fps: " + gameState.stats.frameRate.toPrecision(4)));
+    scene.addComponent(statsBox);
 
     const centerTop = new GameObject();
         centerTop.location = {x: scene.size.width/2,y:0};
-    scene.components.push(centerTop);
+    scene.addComponent(centerTop);
 
     const board = new GameObject();
         board.location = {x:-500,y:180};
         board.size = {width:1000,height:380};
         board.renderer = new BoardRenderer(p1.colorIdentifier, p2.colorIdentifier);
-    centerTop.components.push(board);
+    centerTop.addComponent(board);
 
     const heroBox = new GameObject();
-        heroBox.location = {x:-500,y:0};
+        heroBox.location = {x:-500,y:15};
         heroBox.size = {width:1000,height:140};
-    centerTop.components.push(heroBox);
+    centerTop.addComponent(heroBox);
 
     const heroCenter = new GameObject();
         heroCenter.location = {x:500,y:0};
-    heroBox.components.push(heroCenter);
+    heroBox.addComponent(heroCenter);
 
     //const p1 = gameState.player1;
         p1.location = {x:-150,y:0};
         p1.size = {width:100,height:140};
-    heroCenter.components.push(p1);
+    heroCenter.addComponent(p1);
 
     const reservePadding = 60;
-    const p1Reserve = new PlayerReserve(p1);
+    const p1Reserve = p1.reserve;
         p1Reserve.size = {width:190,height:50};
         p1Reserve.location = {
             x:p1.location.x - p1.size.width/2 - p1Reserve.size.width - reservePadding,
             y:p1.size.height/2 - p1Reserve.size.height/2
         };
-    heroCenter.components.push(p1Reserve);
+    heroCenter.addComponent(p1Reserve);
 
     //const p2 = gameState.player2;
         p2.location = {x:150,y:0};
         p2.size = p1.size;
-    heroCenter.components.push(p2);
+    heroCenter.addComponent(p2);
 
-    const p2Reserve = new PlayerReserve(p2);
+    const p2Reserve = p2.reserve;
         p2Reserve.size = {width:190,height:50};
         p2Reserve.location = {
             x:p2.location.x + p2.size.width/2 + reservePadding,
             y:p2.size.height/2 - p2Reserve.size.height/2
         };
-    heroCenter.components.push(p2Reserve);
+    heroCenter.addComponent(p2Reserve);
 
     // testing
     for(let i = 0; i < 3; i++) {
         let minion = gameState.minions[i];
-        minion.state = "reserve";
-        p1.minions.push(minion);
-        p1Reserve.components[i].components.push(minion);
+        p1.addMinion(minion);
     }
     for(let i = 3; i < 6; i++) {
         let minion = gameState.minions[i];
-        minion.state = "reserve";
-        p2.minions.push(minion);
-        p2Reserve.components[i%3].components.push(minion);
+        p2.addMinion(minion);
     }
+
+    // always want this on top
+    const mouseObject = gameState.mouseObject;
+        // TODO: consider custom cursor
+        //mouseObject.renderer = new RectRenderer("red", true);
+        //mouseObject.size = {width:5,height:5};
+    scene.addComponent(mouseObject);
 };
 const mainGameLoop = function() {
     // update
     updateStats(gameState.stats);
     gameState.scene.update();
     // render
-    gameState.scene.updateScreenLocations({ x: 0, y: 0 });
-    gameState.scene.render();
+    gameState.scene.render({ x: 0, y: 0 });
     // loop
     requestAnimationFrame(mainGameLoop);
 };
