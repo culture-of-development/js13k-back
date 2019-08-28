@@ -42,8 +42,9 @@ class GameObject
     }
 
     removeComponent(gameObject) {
-        arrayRemove(this.components, gameObject);
-        gameObject.parent = null;
+        if (arrayRemove(this.components, gameObject)) {
+            gameObject.parent = null;
+        }
     }
 }
 
@@ -176,10 +177,11 @@ class PlayerReserve extends GameObject
         super();
         this.renderer = new PlayerReserveRenderer(player.colorIdentifier);
 
+        this.owner = player;
         const size = {width: 50,height:50};
         this.slots = [];
         for(let i = 0; i < 3; i++) {
-            const slot = new PlayerReserveSlot();
+            const slot = new PlayerReserveSlot(this);
                 slot.size = size;
                 slot.location = {x:i*(size.width+PlayerReservePadding),y:0};
             this.slots.push(slot);
@@ -201,18 +203,39 @@ class PlayerReserve extends GameObject
 
 class PlayerReserveSlot extends GameObject
 {
-    constructor() {
+    constructor(playerReserve) {
         super();
         this.renderer = new RectRenderer("black", false);
         this.minion = null;
+        this.owner = playerReserve.owner;
     }
 
     setMinion(minion) {
         this.addComponent(minion);
+        this.minion = minion;
+        gameState.setInteractable(minion);
+        minion.location = {x:0,y:0};
+    }
+
+    removeMinion() {
+        this.removeComponent(this.minion);
+        gameState.disableInteractable(this.minion);
+        this.minion = null;
     }
 
     isOccupied() {
         return this.components.length > 0;
+    }
+
+    handleDrop(dragInfo) {
+        const gameObject = dragInfo.object;
+        if (!(gameObject instanceof Minion)) return;
+        if (this.minion) {
+            dragInfo.originalContainer.setMinion(this.minion);
+        } else {
+            dragInfo.originalContainer.removeMinion();
+        }
+        this.setMinion(gameObject);
     }
 }
 
@@ -318,9 +341,16 @@ const initializeInteraction = function() {
         gameState.mouseObject.location = {x:e.offsetX, y:e.offsetY};
     });
     canvas.addEventListener('mouseup', function(e) {
+        const mouseCoords = {x:e.offsetX, y:e.offsetY};
+        let obj = gameState.getDroppableObject(mouseCoords);
+        if (obj && obj.owner == gameState.player1) {
+            obj.handleDrop(drag);
+        }
         if (drag.object == null) return;
-        drag.originalContainer.addComponent(drag.object);
-        drag.object.location = drag.originalLocation;
+        if (drag.object.parent == gameState.mouseObject) {
+            drag.originalContainer.addComponent(drag.object);
+            drag.object.location = drag.originalLocation;
+        }
         drag.object = null;
     });
 };
@@ -329,12 +359,15 @@ const arrayRemove = function(array, value) {
     if (index > -1) {
         array.splice(index, 1);
     }
+    return index > -1;
 };
 const initializeGameState = function() {
     const time = performance.now();
+    let times = [];
+    for(var i = 0; i < 99; i++) times.push(time);
     gameState.stats = { 
         frameCounter: 0, 
-        times: [time, time, time, time, time],
+        times,
         frameRate: 0,
     };
 
@@ -370,20 +403,35 @@ const initializeGameState = function() {
         new Minion("Religion", "🦈", "Concept", "Dormant", "Common", 1100, 1575, 1000, 2625, 10125, 900, 0.81),
     ];
 
-    gameState.getInteractableObject = function(coords) {
-        for(let i = 0; i < minions.length; i++) {
-            let minion = minions[i];
-            //if (minion.state != "reserve") continue;
+    const getObjectAtLocation = function(objects, coords) {
+        for(let i = 0; i < objects.length; i++) {
+            let gameObject = objects[i];
             let x = coords.x;
             let y = coords.y;
-            let sl = minion.screenLocation;
-            let size = minion.size;
+            let sl = gameObject.screenLocation;
+            let size = gameObject.size;
             if (x < sl.x || x > (sl.x + size.width)) continue;
             if (y < sl.y || y > (sl.y + size.height)) continue;
-            return minion;
+            return gameObject;
         }
         return null;
     };
+    const interactable = gameState.interactable = [];
+    gameState.setInteractable = function(gameObject) {
+        if (interactable.indexOf(gameObject) < 0) {
+            interactable.push(gameObject);
+        }
+    };
+    gameState.disableInteractable = gameObject => arrayRemove(interactable, gameObject);
+    gameState.getInteractableObject = coords => getObjectAtLocation(interactable, coords);
+    const droppable = gameState.droppable = [];
+    gameState.setDroppable = function(gameObject) {
+        if (droppable.indexOf(gameObject) < 0) {
+            droppable.push(gameObject);
+        }
+    };
+    gameState.disableDroppable = gameObject => arrayRemove(droppable, gameObject);
+    gameState.getDroppableObject = coords => getObjectAtLocation(droppable, coords);
 
     var scene = new GameObject();
         scene.renderer = new RectRenderer("gainsboro");
@@ -431,6 +479,9 @@ const initializeGameState = function() {
             x:p1.location.x - p1.size.width/2 - p1Reserve.size.width - reservePadding,
             y:p1.size.height/2 - p1Reserve.size.height/2
         };
+        for(let i = 0; i < p1Reserve.slots.length; i++) {
+            gameState.setDroppable(p1Reserve.slots[i]);
+        }
     heroCenter.addComponent(p1Reserve);
 
     //const p2 = gameState.player2;
@@ -447,13 +498,11 @@ const initializeGameState = function() {
     heroCenter.addComponent(p2Reserve);
 
     // testing
-    for(let i = 0; i < 3; i++) {
-        let minion = gameState.minions[i];
-        p1.addMinion(minion);
+    for(let i = 0; i < 2; i++) {
+        p1.addMinion(minions[i]);
     }
-    for(let i = 3; i < 6; i++) {
-        let minion = gameState.minions[i];
-        p2.addMinion(minion);
+    for(let i = 3; i < 5; i++) {
+        p2.addMinion(minions[i]);
     }
 
     // always want this on top
@@ -475,7 +524,7 @@ const mainGameLoop = function() {
 const updateStats = function(stats) {
     const now = performance.now();
     const first = stats.times.shift();
-    stats.frameRate = 1000.0 * (stats.times.length + 1) / (now - first);
+    stats.frameRate = 1000.0 * (stats.times.length-1) / (now - first);
     stats.times.push(now);
 }
 runGame();
