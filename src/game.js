@@ -273,6 +273,7 @@ class Minion extends GameObject
         this.magicAttack = magic_attack;
         this.magicDefense = magic_defense;
         this.health = health;
+        this.maxHealth = health;
         this.mana = mana;
         this.attackSpeed = attack_speed;
         this.size = {height:50,width:50};
@@ -320,14 +321,96 @@ class MinionInfo extends GameObject
     }
 }
 
+const rarityColors = {
+    "Common": "gray",
+    "Rare": "teal",
+    "Epic": "goldenrod"
+};
+const characterIcons = {
+    // specializations
+    "Virus": "🐍",
+    "Engineer": "🔧",
+    "Dormant": "🛡",
+    "Modeler": "💎",
+    // types
+    "Implication": "💡",
+    "Algorithm": "🕰️",
+    "Mathematician": "🕯",
+    "Abstraction": "⚖",
+    "Dream": "🗿",
+    "Concept": "✒"
+};
+
 class MinionInfoRenderer
 {
+    constructor() {
+        this.width = 190;
+        this.height = 130;
+
+        this.textRenderer = new TextRenderer("15px Arial", "center", "top", "white", true);
+    }
+
     render(gameObject) {
         if (gameObject.visible == false) return;
-        let sl = gameObject.screenLocation;
-        gameObject.layer.fillStyle = "blue";
-        gameObject.layer.fillRect(sl.x + 60, sl.y-15, 120, 80);
         let minion = gameObject.minion;
+        let sl = gameObject.screenLocation;
+        let padding = 5;
+        let top = sl.y-(this.height-50)/2;
+        let left = sl.x + 60;
+        let right = left + this.width;
+        let center = left + this.width/2;
+        // box
+        gameObject.layer.fillStyle = rarityColors[minion.rarity];
+        gameObject.layer.fillRect(left, top, this.width, this.height);
+        // name
+        let textObj = new GameObject();
+        textObj.layer = gameObject.layer;
+        textObj.screenLocation = {x:center,y:top+padding};
+        textObj.text = minion.name;
+        this.textRenderer.textAlign = "center";
+        this.textRenderer.render(textObj);
+        // type icon
+        textObj.text = characterIcons[minion.type];
+        textObj.screenLocation = {x:left+padding,y:top+padding};
+        this.textRenderer.textAlign = "left";
+        this.textRenderer.render(textObj);
+        // specialization icon
+        textObj.text = characterIcons[minion.specialization];
+        textObj.screenLocation = {x:right-padding,y:top+padding};
+        this.textRenderer.textAlign = "right";
+        this.textRenderer.render(textObj);
+        // this.physicalAttack = phy_attack;
+        textObj.text = "⚔️ " + minion.physicalAttack;
+        textObj.screenLocation = {x:left+padding+padding,y:top+padding+30};
+        this.textRenderer.textAlign = "left";
+        this.textRenderer.render(textObj);
+        // this.physicalDefense = phy_defense;
+        textObj.text = "⛨ " + minion.physicalDefense;
+        textObj.screenLocation.y += 25;
+        this.textRenderer.render(textObj);
+        // this.maxHealth = health;
+        textObj.text = "♥️ " + minion.maxHealth;
+        textObj.screenLocation.y += 25;
+        this.textRenderer.render(textObj);
+        // this.magicAttack = magic_attack;
+        textObj.text = minion.magicAttack + " 💫";
+        textObj.screenLocation = {x:right-padding-padding,y:top+padding+30};
+        this.textRenderer.textAlign = "right";
+        this.textRenderer.render(textObj);
+        // this.magicDefense = magic_defense;
+        textObj.text = minion.magicDefense + " 💢";
+        textObj.screenLocation.y += 25;
+        this.textRenderer.render(textObj);
+        // this.mana = mana;
+        textObj.text = minion.mana + " 🔮";
+        textObj.screenLocation.y += 25;
+        this.textRenderer.render(textObj);
+        // this.attackSpeed = attack_speed;
+        textObj.text = "⌛ " + minion.attackSpeed + " ⌛";
+        textObj.screenLocation.x = center
+        textObj.screenLocation.y += 25;
+        this.textRenderer.textAlign = "center";
+        this.textRenderer.render(textObj);
     }
 }
 
@@ -489,7 +572,7 @@ const initializeGameState = function() {
         new Minion("Drug", "🐀", "Abstraction", "Virus", "Common", 1625, 1125, 1000, 1000, 4950, 440, 1.38),
         new Minion("Lambda", "🦇", "Abstraction", "Modeler", "Rare", 1500, 1950, 1350, 1350, 9900, 528, 1.19),
         new Minion("Language", "🐨", "Abstraction", "Engineer", "Common", 1180, 800, 2065, 1100, 3580, 773, 1.19),
-        new Minion("Transfer (knowledge)", "🦃", "Abstraction", "Dormant", "Rare", 1650, 1350, 1500, 2250, 8910, 792, 1.19),
+        new Minion("Transfer", "🦃", "Abstraction", "Dormant", "Rare", 1650, 1350, 1500, 2250, 8910, 792, 1.19),
         new Minion("Prophet", "🐧", "Dream", "Virus", "Epic", 2828, 1305, 1740, 1160, 5873, 725, 2.18),
         new Minion("Idea", "🐦", "Dream", "Modeler", "Common", 1500, 1300, 1350, 900, 6750, 500, 1.08),
         new Minion("Lucid", "🐊", "Dream", "Engineer", "Rare", 1440, 960, 2520, 1320, 4320, 938, 1.44),
@@ -607,12 +690,12 @@ const initializeGameState = function() {
     heroCenter.addComponent(p2Reserve);
 
     // testing
-    for(let i = 0; i < 2; i++) {
-        p1.addMinion(minions[i]);
-    }
-    for(let i = 3; i < 5; i++) {
-        p2.addMinion(minions[i]);
-    }
+    p1.addMinion(minions[0]);
+    p1.addMinion(minions[2]);
+    p1.addMinion(minions[5]);
+    p2.addMinion(minions[15]);
+    p2.addMinion(minions[4]);
+    p2.addMinion(minions[3]);
 
     // always want this on top
     const mouseObject = gameState.mouseObject;
