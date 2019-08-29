@@ -2,6 +2,10 @@ const win = window;
 const doc = document;
 const canvas = doc.getElementById("game");
 const canvasCtx = canvas.getContext("2d");
+const uiCanvas = doc.createElement("canvas");
+uiCanvas.width = canvas.width;
+uiCanvas.height = canvas.height;
+const uiCtx = uiCanvas.getContext("2d");
 const gameState = {};
 
 class GameObject
@@ -14,6 +18,7 @@ class GameObject
         this.renderer = null;
         this.updateTasks = [];
         this.parent = null;
+        this.layer = canvasCtx;
     }
 
     addUpdateTask(task) {
@@ -57,11 +62,11 @@ class RectRenderer
 
     render(gameObject) {
         if (this.fill) {
-            canvasCtx.fillStyle = this.style;
-            canvasCtx.fillRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
+            gameObject.layer.fillStyle = this.style;
+            gameObject.layer.fillRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
         } else {
-            canvasCtx.strokeStyle = this.style;
-            canvasCtx.strokeRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
+            gameObject.layer.strokeStyle = this.style;
+            gameObject.layer.strokeRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
         }
     }
 }
@@ -90,15 +95,15 @@ class TextRenderer
     }
 
     render(gameObject) {
-        canvasCtx.textAlign = this.textAlign;
-        canvasCtx.textBaseline = this.textBaseline;
-        canvasCtx.font = this.font;
+        gameObject.layer.textAlign = this.textAlign;
+        gameObject.layer.textBaseline = this.textBaseline;
+        gameObject.layer.font = this.font;
         if (this.fill) {
-            canvasCtx.fillStyle = this.style;
-            canvasCtx.fillText(gameObject.text, gameObject.screenLocation.x, gameObject.screenLocation.y);
+            gameObject.layer.fillStyle = this.style;
+            gameObject.layer.fillText(gameObject.text, gameObject.screenLocation.x, gameObject.screenLocation.y);
         } else {
-            canvasCtx.strokeStyle = this.style;
-            canvasCtx.strokeText(gameObject.text, gameObject.screenLocation.x, gameObject.screenLocation.y);
+            gameObject.layer.strokeStyle = this.style;
+            gameObject.layer.strokeText(gameObject.text, gameObject.screenLocation.x, gameObject.screenLocation.y);
         }
     }
 }
@@ -162,11 +167,11 @@ class HealthBarRenderer
 
     render(gameObject) {
         const left = gameObject.screenLocation.x - this.width / 2.0;
-        canvasCtx.fillStyle = "red";
-        canvasCtx.fillRect(left, gameObject.screenLocation.y, this.width, this.height);
-        canvasCtx.fillStyle = "green";
+        gameObject.layer.fillStyle = "red";
+        gameObject.layer.fillRect(left, gameObject.screenLocation.y, this.width, this.height);
+        gameObject.layer.fillStyle = "green";
         const percentLife = gameObject.health / gameObject.maxHealth;
-        canvasCtx.fillRect(left, gameObject.screenLocation.y, this.width*percentLife, this.height);
+        gameObject.layer.fillRect(left, gameObject.screenLocation.y, this.width*percentLife, this.height);
     }
 }
 
@@ -246,11 +251,11 @@ class PlayerReserveRenderer
     }
 
     render(gameObject) {
-        canvasCtx.fillStyle = this.colorIdentifier;
+        gameObject.layer.fillStyle = this.colorIdentifier;
         const sl = gameObject.screenLocation;
         const s = gameObject.size;
         const pad = PlayerReservePadding;
-        canvasCtx.fillRect(sl.x-pad, sl.y-pad, s.width+pad+pad, s.height+pad+pad);
+        gameObject.layer.fillRect(sl.x-pad, sl.y-pad, s.width+pad+pad, s.height+pad+pad);
     }
 }
 
@@ -273,6 +278,12 @@ class Minion extends GameObject
         this.size = {height:50,width:50};
         this.renderer = new MinionRenderer();
         this.owner = null;
+        this.minionInfo = new MinionInfo(this);
+        this.addComponent(this.minionInfo);
+    }
+
+    handleContext() {
+        this.minionInfo.toggleVisible();
     }
 }
 
@@ -294,6 +305,32 @@ class MinionRenderer
     }
 }
 
+class MinionInfo extends GameObject
+{
+    constructor(minion) {
+        super();
+        this.minion = minion;
+        this.visible = false;
+        this.renderer = new MinionInfoRenderer();
+        this.layer = uiCtx;
+    }
+
+    toggleVisible() {
+        this.visible = !this.visible;
+    }
+}
+
+class MinionInfoRenderer
+{
+    render(gameObject) {
+        if (gameObject.visible == false) return;
+        let sl = gameObject.screenLocation;
+        gameObject.layer.fillStyle = "blue";
+        gameObject.layer.fillRect(sl.x + 60, sl.y-15, 120, 80);
+        let minion = gameObject.minion;
+    }
+}
+
 class BoardRenderer
 {
     constructor(p1Color, p2Color) {
@@ -304,12 +341,12 @@ class BoardRenderer
     render(gameObject) {
         const sl = gameObject.screenLocation;
         const s = gameObject.size;
-        canvasCtx.fillStyle = this.p2Color;
-        canvasCtx.fillRect(sl.x, sl.y, s.width, s.height);
-        canvasCtx.fillStyle = this.p1Color;
-        canvasCtx.fillRect(sl.x, sl.y, s.width/2, s.height);
-        canvasCtx.strokeStyle = "black";
-        canvasCtx.strokeRect(sl.x, sl.y, s.width, s.height);
+        gameObject.layer.fillStyle = this.p2Color;
+        gameObject.layer.fillRect(sl.x, sl.y, s.width, s.height);
+        gameObject.layer.fillStyle = this.p1Color;
+        gameObject.layer.fillRect(sl.x, sl.y, s.width/2, s.height);
+        gameObject.layer.strokeStyle = "black";
+        gameObject.layer.strokeRect(sl.x, sl.y, s.width, s.height);
     }
 }
 
@@ -375,7 +412,9 @@ const runGame = function() {
     mainGameLoop();
 };
 const initializeInteraction = function() {
-    canvas.addEventListener('selectstart', function(e) { e.preventDefault(); return false; }, false);
+    function prevDef(e) { e.preventDefault(); return false; }
+    canvas.addEventListener('selectstart', prevDef, false);
+    canvas.addEventListener('contextmenu', prevDef, false);
     const drag = { object: null, originalContainer: null, originalLocation: null };
     const startDrag = function(gameObject, mouseCoords) {
         drag.object = gameObject;
@@ -388,7 +427,10 @@ const initializeInteraction = function() {
     canvas.addEventListener('mousedown', function(e) {
         const mouseCoords = {x:e.offsetX, y:e.offsetY};
         let obj = gameState.getInteractableObject(mouseCoords);
-        if (obj && obj.owner == gameState.player1 && obj.parent != gameState.mouseObject) {
+        if (e.button == 2 && obj && obj.handleContext) {
+            obj.handleContext();
+        }
+        if (e.button == 0 && obj && obj.owner == gameState.player1 && obj.parent != gameState.mouseObject) {
             startDrag(obj, mouseCoords);
         }
     });
@@ -398,7 +440,7 @@ const initializeInteraction = function() {
     canvas.addEventListener('mouseup', function(e) {
         const mouseCoords = {x:e.offsetX, y:e.offsetY};
         let obj = gameState.getDroppableObject(mouseCoords);
-        if (obj && obj.owner == gameState.player1) {
+        if (e.button == 0 && obj && obj.handleDrop && obj.owner == gameState.player1) {
             obj.handleDrop(drag);
         }
         if (drag.object == null) return;
@@ -495,9 +537,11 @@ const initializeGameState = function() {
     gameState.scene = scene;
 
     const statsBox = new GameObject();
+        statsBox.layer = uiCtx;
         statsBox.location = {x:5,y:580};
         statsBox.size = {width:100,height:20};
         let fpsText = new TextGameObject("fps: 0.00", "10px monospace", "left", "top", "black");
+            fpsText.layer = uiCtx;
             fpsText.location = {x:5,y:5};
             statsBox.addComponent(fpsText);
         statsBox.addUpdateTask(gObj => fpsText.setText("fps: " + gameState.stats.frameRate.toPrecision(4)));
@@ -582,7 +626,9 @@ const mainGameLoop = function() {
     updateStats(gameState.stats);
     gameState.scene.update();
     // render
+    uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
     gameState.scene.render({ x: 0, y: 0 });
+    canvasCtx.drawImage(uiCanvas, 0, 0, uiCanvas.width, uiCanvas.height);
     // loop
     requestAnimationFrame(mainGameLoop);
 };
