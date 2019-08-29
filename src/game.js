@@ -313,6 +313,61 @@ class BoardRenderer
     }
 }
 
+class BoardGrid extends GameObject
+{
+    constructor(player) {
+        super();
+        this.owner = player;
+        for(let r = 0; r < 4; r++) {
+            for(let c = 0; c < 5; c++) {
+                let cell = new BoardCell(this);
+                    cell.size = {width:100,height:95};
+                    cell.location = {x:100*c,y:95*r};
+                this.addComponent(cell);
+                gameState.setDroppable(cell);
+            }
+        }
+    }
+}
+
+class BoardCell extends GameObject
+{
+    constructor(boardGrid) {
+        super();
+        this.renderer = new RectRenderer("lightgray", false);
+        this.minion = null;
+        this.owner = boardGrid.owner;
+    }
+
+    setMinion(minion) {
+        this.addComponent(minion);
+        this.minion = minion;
+        gameState.setInteractable(minion);
+        minion.location = {x:25,y:22};
+    }
+
+    removeMinion() {
+        this.removeComponent(this.minion);
+        gameState.disableInteractable(this.minion);
+        this.minion = null;
+    }
+
+    isOccupied() {
+        return this.components.length > 0;
+    }
+
+    handleDrop(dragInfo) {
+        const gameObject = dragInfo.object;
+        if (!(gameObject instanceof Minion)) return;
+        if (this.minion) {
+            dragInfo.originalContainer.setMinion(this.minion);
+        } else {
+            dragInfo.originalContainer.removeMinion();
+        }
+        this.setMinion(gameObject);
+    }
+}
+
 
 const runGame = function() {
     initializeGameState();
@@ -457,6 +512,16 @@ const initializeGameState = function() {
         board.size = {width:1000,height:380};
         board.renderer = new BoardRenderer(p1.colorIdentifier, p2.colorIdentifier);
     centerTop.addComponent(board);
+
+    const p1BoardGrid = new BoardGrid(p1);
+        p1BoardGrid.location = {x:0,y:0};
+        p1BoardGrid.size = {width:500,height:380};
+    board.addComponent(p1BoardGrid);
+
+    const p2BoardGrid = new BoardGrid(p2);
+        p2BoardGrid.location = {x:500,y:0};
+        p2BoardGrid.size = {width:500,height:380};
+    board.addComponent(p2BoardGrid);
 
     const heroBox = new GameObject();
         heroBox.location = {x:-500,y:15};
