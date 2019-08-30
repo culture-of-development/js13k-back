@@ -19,6 +19,7 @@ class GameObject
         this.updateTasks = [];
         this.parent = null;
         this.layer = canvasCtx;
+        this.handlers = {};
     }
 
     addUpdateTask(task) {
@@ -38,6 +39,19 @@ class GameObject
         this.components.forEach(c => c.render(this.screenLocation));
     }
 
+    getObjectsAt(coords, buffer) {
+        let x = coords.x;
+        let y = coords.y;
+        let sl = this.screenLocation;
+        let size = this.size;
+        if (x >= sl.x && x <= (sl.x + size.width)) {
+            if (y >= sl.y && y <= (sl.y + size.height)) {
+                buffer.push(this);
+            }
+        }
+        this.components.forEach(c => c.getObjectsAt(coords, buffer));
+    }
+
     addComponent(gameObject) {
         if (gameObject.parent) {
             gameObject.parent.removeComponent(gameObject);
@@ -50,6 +64,64 @@ class GameObject
         if (arrayRemove(this.components, gameObject)) {
             gameObject.parent = null;
         }
+    }
+
+    addHandler(event, handler) {
+        let eventHandlers = this.handlers[event] = this.handlers[event] || [];
+        if (eventHandlers.indexOf(handler) < 0) {
+            eventHandlers.push(handler);
+        }
+    }
+
+    removeHandler(event, handler) {
+        let eventHandlers = this.handlers[event];
+        if (eventHandlers) {
+            arrayRemove(eventHandlers, handler);
+        }
+    }
+
+    handle(event, data) {
+        (this.handlers[event] || []).forEach(c => c(data));
+    }
+}
+
+class Scene extends GameObject
+{
+    constructor(backgroundColor) {
+        super();
+        this.renderer = new RectRenderer(backgroundColor);
+        this.size = {width:canvas.width,height:canvas.height};
+
+        this.addHandler("mousemove", coords => gameState.mouseObject.location = coords);
+    }
+}
+
+class Button extends GameObject
+{
+    constructor(text, width, height, font, textColor, backgroundColor) {
+        super();
+        this.text = text;
+        this.size = {width, height};
+        this.renderer = new ButtonRenderer(font, textColor, backgroundColor);
+    }
+}
+
+class ButtonRenderer
+{
+    constructor(font, textColor, backgroundColor) {
+        this.textRenderer = new TextRenderer(font, "center", "middle", textColor, true);
+        this.backgroundRenderer = new RectRenderer(backgroundColor, true);
+    }
+
+    render(gameObject) {
+        this.backgroundRenderer.render(gameObject);
+        let centerText = new GameObject();
+        centerText.text = gameObject.text;
+        centerText.screenLocation = {
+            x: gameObject.screenLocation.x + gameObject.size.width / 2,
+            y: gameObject.screenLocation.y + gameObject.size.height / 2
+        };
+        this.textRenderer.render(centerText);
     }
 }
 
@@ -281,10 +353,8 @@ class Minion extends GameObject
         this.owner = null;
         this.minionInfo = new MinionInfo(this);
         this.addComponent(this.minionInfo);
-    }
 
-    handleContext() {
-        this.minionInfo.toggleVisible();
+        this.addHandler("rightmousedown", coords => this.minionInfo.toggleVisible());
     }
 }
 
@@ -507,19 +577,27 @@ const initializeInteraction = function() {
         let sl = gameObject.screenLocation;
         gameObject.location = {x:sl.x-mouseCoords.x,y:sl.y-mouseCoords.y};
     };
+    const fireMouseEvent = function(name, e) {
+        const mouseData = {x:e.offsetX, y:e.offsetY};
+        let objects = [];
+        gameState.scene.getObjectsAt(mouseData, objects);
+        while(objects.length > 0) {
+            // todo: consider allowing a stop bubbling condition?
+            // modeled as a stack in the render order so you process things on top first
+            objects.pop().handle(name, mouseData);
+        }
+    };
     canvas.addEventListener('mousedown', function(e) {
+        if (e.button == 2) fireMouseEvent("rightmousedown", e);
+        if (e.button == 0) fireMouseEvent("leftmousedown", e);
+
         const mouseCoords = {x:e.offsetX, y:e.offsetY};
         let obj = gameState.getInteractableObject(mouseCoords);
-        if (e.button == 2 && obj && obj.handleContext) {
-            obj.handleContext();
-        }
         if (e.button == 0 && obj && obj.owner == gameState.player1 && obj.parent != gameState.mouseObject) {
             startDrag(obj, mouseCoords);
         }
     });
-    canvas.addEventListener('mousemove', function(e) {
-        gameState.mouseObject.location = {x:e.offsetX, y:e.offsetY};
-    });
+    canvas.addEventListener('mousemove', e => fireMouseEvent("mousemove", e));
     canvas.addEventListener('mouseup', function(e) {
         const mouseCoords = {x:e.offsetX, y:e.offsetY};
         let obj = gameState.getDroppableObject(mouseCoords);
@@ -551,7 +629,9 @@ const initializeGameState = function() {
         frameRate: 0,
     };
 
-    gameState.mouseObject = new GameObject();
+    const mouseObject = gameState.mouseObject = new GameObject();
+        // mouseObject.renderer = new RectRenderer("red", "true");
+        // mouseObject.size = {width:50,height:50};
 
     const p1 = gameState.player1 = new Player("player", "😃", "wheat");
     const p2 = gameState.player2 = new Player("computer", "🧠", "lavender");
@@ -613,11 +693,8 @@ const initializeGameState = function() {
     gameState.disableDroppable = gameObject => arrayRemove(droppable, gameObject);
     gameState.getDroppableObject = coords => getObjectAtLocation(droppable, coords);
 
-    var scene = new GameObject();
-        scene.renderer = new RectRenderer("gainsboro");
-        scene.size.width = canvas.width;
-        scene.size.height = canvas.height;
-    gameState.scene = scene;
+    // game scene
+    var scene = gameState.gameScene = new Scene("gainsboro");
 
     const statsBox = new GameObject();
         statsBox.layer = uiCtx;
@@ -697,12 +774,25 @@ const initializeGameState = function() {
     p2.addMinion(minions[4]);
     p2.addMinion(minions[3]);
 
-    // always want this on top
-    const mouseObject = gameState.mouseObject;
-        // TODO: consider custom cursor
-        //mouseObject.renderer = new RectRenderer("red", true);
-        //mouseObject.size = {width:5,height:5};
-    scene.addComponent(mouseObject);
+    
+    // intro scene
+    scene = gameState.introScene = new Scene("gainsboro");
+
+    // start button
+    let startGameButton = new Button("Start Game!", 400, 100, "20px Arial", "white", "green");
+        startGameButton.location = {x:350,y:250};
+        startGameButton.addHandler("leftmousedown", startNewEpisode);
+    scene.addComponent(startGameButton);
+
+    // set the current scene
+    gameState.setScene = function(scene) {
+        gameState.scene = scene;
+        scene.addComponent(mouseObject);
+    }
+    gameState.setScene(gameState.introScene);
+};
+const startNewEpisode = function() {
+    gameState.setScene(gameState.gameScene);
 };
 const mainGameLoop = function() {
     // update
@@ -718,7 +808,7 @@ const mainGameLoop = function() {
 const updateStats = function(stats) {
     const now = performance.now();
     const first = stats.times.shift();
-    stats.frameRate = 1000.0 * (stats.times.length-1) / (now - first);
     stats.times.push(now);
+    stats.frameRate = 1000.0 * stats.times.length / (now - first);
 }
 runGame();
