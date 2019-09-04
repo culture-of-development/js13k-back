@@ -81,7 +81,56 @@ class GameObject
     }
 
     handle(event, data) {
-        (this.handlers[event] || []).forEach(c => c(data));
+        (this.handlers[event] || []).forEach(h => h(data));
+    }
+}
+
+class Timer extends GameObject
+{
+    constructor(duration) {
+        super();
+        this.duration = duration;
+        this.startTime = null;
+        this.isRunning = false;
+        this.setRemaining(this.duration);
+    }
+
+    setRemaining(timeRemaining) {
+        this.timeRemaining = timeRemaining;
+        this.text = (this.timeRemaining/1000).toFixed(0);
+    }
+
+    start() {
+        this.startTime = gameState.now;
+        this.isRunning = true;
+        this.setRemaining(this.duration);
+    }
+
+    update() {
+        if (!this.isRunning) return;
+        let runningSeconds = gameState.now - this.startTime;
+        let timeRemaining = Math.max(0, this.duration - runningSeconds);
+        this.setRemaining(timeRemaining);
+        if (this.timeRemaining == 0) {
+            this.isRunning = false;
+            this.handle("timer", null);
+        }
+    }
+}
+
+class CircularCountdownTimerRenderer
+{
+    constructor(radius, thickness) {
+        this.textRenderer = new TextRenderer("75px monospace", "center", "middle", "black", true);
+        this.arcRenderer = new ArcRenderer(radius, thickness, "red", false);
+    }
+
+    render(gameObject) {
+        gameObject.startAngle = 0.5 * Math.PI;
+        let percentTimeRemaining = 1 - gameObject.timeRemaining / gameObject.duration;
+        gameObject.endAngle = (0.5 + (2 * percentTimeRemaining)) * Math.PI;
+        this.arcRenderer.render(gameObject);
+        this.textRenderer.render(gameObject);
     }
 }
 
@@ -127,12 +176,14 @@ class ButtonRenderer
 
 class RectRenderer
 {
-    constructor(style = "black", fill = true) {
+    constructor(style = "black", fill = true, lineWidth = 1) {
         this.style = style;
         this.fill = fill;
+        this.lineWidth = lineWidth;
     }
 
     render(gameObject) {
+        gameObject.layer.lineWidth = this.lineWidth;
         if (this.fill) {
             gameObject.layer.fillStyle = this.style;
             gameObject.layer.fillRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
@@ -180,6 +231,29 @@ class TextRenderer
     }
 }
 
+class ArcRenderer
+{
+    constructor(radius, thickness, style, fill = false) {
+        this.radius = radius;
+        this.thickness = thickness;
+        this.style = style;
+        this.fill = fill;
+    }
+
+    render(gameObject) {
+        gameObject.layer.lineWidth = this.thickness;
+        gameObject.layer.beginPath();
+        gameObject.layer.arc(gameObject.screenLocation.x, gameObject.screenLocation.y, this.radius, gameObject.startAngle, gameObject.endAngle, true);
+        if (this.fill) {
+            gameObject.layer.fillStyle = this.style;
+            gameObject.layer.fill();
+        } else {
+            gameObject.layer.strokeStyle = this.style;
+            gameObject.layer.stroke();
+        }
+    }
+}
+
 class Player extends GameObject
 {
     constructor(name, avatar, colorIdentifier) {
@@ -191,7 +265,7 @@ class Player extends GameObject
         this.minions = [];
         this.colorIdentifier = colorIdentifier;
         this.renderer = new PlayerRenderer();
-        this.reserve = new PlayerReserve(this);
+        this.reserve = new PlayerReserve(this, 3);
     }
 
     addMinion(minion) {
@@ -201,6 +275,13 @@ class Player extends GameObject
             minion.owner = this;
         }
         return added;
+    }
+
+    removeMinion(minion) {
+        if (arrayRemove(this.minions, minion)) {
+            minion.parent.removeComponent(minion);
+            minion.owner = null;
+        }
     }
 }
 
@@ -250,14 +331,15 @@ class HealthBarRenderer
 const PlayerReservePadding = 20;
 class PlayerReserve extends GameObject
 {
-    constructor(player) {
+    constructor(player, minionCount) {
         super();
         this.renderer = new PlayerReserveRenderer(player.colorIdentifier);
 
+        minionCount = minionCount || 3;
         this.owner = player;
         const size = {width: 50,height:50};
         this.slots = [];
-        for(let i = 0; i < 3; i++) {
+        for(let i = 0; i < minionCount; i++) {
             const slot = new PlayerReserveSlot(this);
                 slot.size = size;
                 slot.location = {x:i*(size.width+PlayerReservePadding),y:0};
@@ -285,11 +367,13 @@ class PlayerReserveSlot extends GameObject
         this.renderer = new RectRenderer("black", false);
         this.minion = null;
         this.owner = playerReserve.owner;
+        gameState.setDroppable(this);
     }
 
     setMinion(minion) {
         this.addComponent(minion);
         this.minion = minion;
+        this.minion.owner = this.owner;
         gameState.setInteractable(minion);
         minion.location = {x:0,y:0};
     }
@@ -633,6 +717,36 @@ const initializeGameState = function() {
         // mouseObject.renderer = new RectRenderer("red", "true");
         // mouseObject.size = {width:50,height:50};
 
+    const getObjectAtLocation = function(objects, coords) {
+        for(let i = 0; i < objects.length; i++) {
+            let gameObject = objects[i];
+            let x = coords.x;
+            let y = coords.y;
+            let sl = gameObject.screenLocation;
+            let size = gameObject.size;
+            if (x < sl.x || x > (sl.x + size.width)) continue;
+            if (y < sl.y || y > (sl.y + size.height)) continue;
+            return gameObject;
+        }
+        return null;
+    };
+    const interactable = gameState.interactable = [];
+    gameState.setInteractable = function(gameObject) {
+        if (interactable.indexOf(gameObject) < 0) {
+            interactable.push(gameObject);
+        }
+    };
+    gameState.disableInteractable = gameObject => arrayRemove(interactable, gameObject);
+    gameState.getInteractableObject = coords => getObjectAtLocation(interactable, coords);
+    const droppable = gameState.droppable = [];
+    gameState.setDroppable = function(gameObject) {
+        if (droppable.indexOf(gameObject) < 0) {
+            droppable.push(gameObject);
+        }
+    };
+    gameState.disableDroppable = gameObject => arrayRemove(droppable, gameObject);
+    gameState.getDroppableObject = coords => getObjectAtLocation(droppable, coords);
+
     const p1 = gameState.player1 = new Player("player", "😃", "wheat");
     const p2 = gameState.player2 = new Player("computer", "🧠", "lavender");
 
@@ -663,35 +777,6 @@ const initializeGameState = function() {
         new Minion("Religion", "🦈", "Concept", "Dormant", "Common", 1100, 1575, 1000, 2625, 10125, 900, 0.81),
     ];
 
-    const getObjectAtLocation = function(objects, coords) {
-        for(let i = 0; i < objects.length; i++) {
-            let gameObject = objects[i];
-            let x = coords.x;
-            let y = coords.y;
-            let sl = gameObject.screenLocation;
-            let size = gameObject.size;
-            if (x < sl.x || x > (sl.x + size.width)) continue;
-            if (y < sl.y || y > (sl.y + size.height)) continue;
-            return gameObject;
-        }
-        return null;
-    };
-    const interactable = gameState.interactable = [];
-    gameState.setInteractable = function(gameObject) {
-        if (interactable.indexOf(gameObject) < 0) {
-            interactable.push(gameObject);
-        }
-    };
-    gameState.disableInteractable = gameObject => arrayRemove(interactable, gameObject);
-    gameState.getInteractableObject = coords => getObjectAtLocation(interactable, coords);
-    const droppable = gameState.droppable = [];
-    gameState.setDroppable = function(gameObject) {
-        if (droppable.indexOf(gameObject) < 0) {
-            droppable.push(gameObject);
-        }
-    };
-    gameState.disableDroppable = gameObject => arrayRemove(droppable, gameObject);
-    gameState.getDroppableObject = coords => getObjectAtLocation(droppable, coords);
 
     // game scene
     var scene = gameState.gameScene = new Scene("gainsboro");
@@ -748,9 +833,6 @@ const initializeGameState = function() {
             x:p1.location.x - p1.size.width/2 - p1Reserve.size.width - reservePadding,
             y:p1.size.height/2 - p1Reserve.size.height/2
         };
-        for(let i = 0; i < p1Reserve.slots.length; i++) {
-            gameState.setDroppable(p1Reserve.slots[i]);
-        }
     heroCenter.addComponent(p1Reserve);
 
     //const p2 = gameState.player2;
@@ -774,6 +856,14 @@ const initializeGameState = function() {
     p2.addMinion(minions[4]);
     p2.addMinion(minions[3]);
 
+    const minionPlacementTimer = new Timer(5000);
+        minionPlacementTimer.renderer = new CircularCountdownTimerRenderer(55, 7);
+        minionPlacementTimer.location = {x:0,y:heroBox.size.height/2};
+        minionPlacementTimer.addHandler("timer", runCombat);
+        // TODO: handle timer event
+    heroCenter.addComponent(minionPlacementTimer);
+    scene.addHandler("activate", _ => minionPlacementTimer.start());
+
     
     // intro scene
     scene = gameState.introScene = new Scene("gainsboro");
@@ -784,15 +874,129 @@ const initializeGameState = function() {
         startGameButton.addHandler("leftmousedown", startNewEpisode);
     scene.addComponent(startGameButton);
 
+
     // set the current scene
     gameState.setScene = function(scene) {
         gameState.scene = scene;
         scene.addComponent(mouseObject);
+        scene.handle("activate", null);
     }
     gameState.setScene(gameState.introScene);
 };
-const startNewEpisode = function() {
+const runCombat = function() {
+    // TODO: disable dragging
+    const p1 = gameState.player1;
+    const p2 = gameState.player2;
+
+    let player = Math.random() < 0.5 ? p1 : p2;
+    let damage = (Math.random() * 0.1 + 0.06) * player.maxHealth;
+    player.health -= Math.min(player.health, damage);
+    if (player.health <= 0) {
+        console.log("end of game");
+        setTimeout(() => gameState.setScene(gameState.introScene), 10000);
+        return;
+    }
+    let firstSelection = p1.health <= p2.health ? p1 : p2;
+    let minionSelectionScene = makeMinionSelectionScene(firstSelection);
+    gameState.setScene(minionSelectionScene);
+};
+const makeMinionSelectionScene = function(firstChoice, secondChoice) {
+    gameState.minionSelectionNext = secondChoice;
+
+    // minion selection scene
+    scene = new Scene("gainsboro");
+
+    let centerX = scene.size.width / 2;
+
+    // player minion container
+    let p1 = gameState.player1;
+    let p1Inventory = new PlayerReserve(p1, 7);
+        p1Inventory.size = {width:470,height:50};
+        p1Inventory.location = {x:centerX - 510/2, y:420};
+        for(let i = 0; i < p1.minions.length; i++) {
+            let minion = p1.minions[i];
+            minion.lastParent = minion.parent;
+            p1Inventory.addMinion(minion);
+        }
+    scene.addComponent(p1Inventory);
+
+    let p2 = gameState.player2;
+    let p2Inventory = new PlayerReserve(p2, 7);
+        p2Inventory.size = {width:470,height:50};
+        p2Inventory.location = {x:centerX - 510/2, y:120};
+        for(let i = 0; i < p2.minions.length; i++) {
+            let minion = p2.minions[i];
+            minion.lastParent = minion.parent;
+            p2Inventory.addMinion(minion);
+        }
+    scene.addComponent(p2Inventory);
+
+    // pass button
+    let passButton = new Button("SKIP", 100, 50, "20px Arial", "white", "coral");
+        passButton.location = {x:900,y:420};
+        passButton.addHandler("leftmousedown", endMinionSelection);
+    scene.addComponent(passButton);
+
+    // options placeholders
+    gameState.gameInteractable = gameState.interactable;
+    let selectionDraggable = gameState.interactable = [];
+    let pSelection = firstChoice;
+    let pSelectionInventory = new PlayerReserve(pSelection, 2);
+        pSelectionInventory.size = {width:120,height:50};
+        pSelectionInventory.location = {x:centerX - 140/2, y:(scene.size.height -50) / 2};
+        let minionOptions = getMinionOptions(2);
+        for(let i = 0; i < minionOptions.length; i++) {
+            let minion = minionOptions[i];
+            selectionDraggable.push(minion);
+            minion.lastParent = null;
+            pSelectionInventory.addMinion(minion);
+        }
+    scene.addComponent(pSelectionInventory);
+
+    // instructions as well
+
+    return scene;
+}
+const getMinionOptions = function(count) {
+    let rarityWeights = {"Common": 10, "Rare": 4, "Epic": 1};
+    let results = [];
+    for(let x = 0; x < count; x++) {
+        let total = 0;
+        for(let i = 0; i < gameState.minions.length; i++) {
+            let minion = gameState.minions[i];
+            if (minion.owner || results.indexOf(minion) >= 0) continue;
+            total += rarityWeights[minion.rarity];
+        }
+        let value = Math.random() * total;
+        total = 0;
+        let selectionIndex = 0;
+        for(; selectionIndex < gameState.minions.length; selectionIndex++) {
+            let minion = gameState.minions[selectionIndex];
+            if (minion.owner || results.indexOf(minion) >= 0) continue;
+            total += rarityWeights[minion.rarity];
+            if (value < total) break;
+        }
+        selectionIndex = Math.min(selectionIndex, gameState.minions.length-1);
+        let selection = gameState.minions[selectionIndex];
+        results.push(selection);
+    }
+    return results;
+};
+const endMinionSelection = function() {
+    function returnMinionsToGame(player) {
+        for(let i = 0; i < player.minions.length; i++) {
+            let minion = player.minions[i];
+            minion.lastParent.addComponent(minion);
+        }
+    }
+    returnMinionsToGame(gameState.player1);
+    returnMinionsToGame(gameState.player2);
+    gameState.interactable = gameState.gameInteractable;
     gameState.setScene(gameState.gameScene);
+};
+const startNewEpisode = function() {
+    let minionSelectionScene = makeMinionSelectionScene(gameState.player1);
+    gameState.setScene(minionSelectionScene);
 };
 const mainGameLoop = function() {
     // update
@@ -806,7 +1010,7 @@ const mainGameLoop = function() {
     requestAnimationFrame(mainGameLoop);
 };
 const updateStats = function(stats) {
-    const now = performance.now();
+    const now = gameState.now = performance.now();
     const first = stats.times.shift();
     stats.times.push(now);
     stats.frameRate = 1000.0 * stats.times.length / (now - first);
