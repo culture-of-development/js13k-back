@@ -6,7 +6,7 @@ const uiCanvas = doc.createElement("canvas");
 uiCanvas.width = canvas.width;
 uiCanvas.height = canvas.height;
 const uiCtx = uiCanvas.getContext("2d");
-const gameState = {};
+let gameState;
 
 class GameObject
 {
@@ -18,7 +18,7 @@ class GameObject
         this.renderer = null;
         this.updateTasks = [];
         this.parent = null;
-        this.layer = canvasCtx;
+        this.layer = null;
         this.handlers = {};
     }
 
@@ -83,6 +83,12 @@ class GameObject
     handle(event, data) {
         (this.handlers[event] || []).forEach(h => h(data));
     }
+
+    getLayer() {
+        if (this.layer) return this.layer;
+        if (this.parent) return this.parent.getLayer();
+        return canvasCtx;
+    }
 }
 
 class Timer extends GameObject
@@ -140,8 +146,11 @@ class Scene extends GameObject
         super();
         this.renderer = new RectRenderer(backgroundColor);
         this.size = {width:canvas.width,height:canvas.height};
-
-        this.addHandler("mousemove", coords => gameState.mouseObject.location = coords);
+        
+        const mouseObject = this.mouseObject = new GameObject();
+            mouseObject.layer = uiCtx;
+            this.addHandler("mousemove", coords => mouseObject.location = coords);
+        this.addComponent(mouseObject);
     }
 }
 
@@ -183,13 +192,14 @@ class RectRenderer
     }
 
     render(gameObject) {
-        gameObject.layer.lineWidth = this.lineWidth;
+        let ctx = gameObject.getLayer();
+        ctx.lineWidth = this.lineWidth;
         if (this.fill) {
-            gameObject.layer.fillStyle = this.style;
-            gameObject.layer.fillRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
+            ctx.fillStyle = this.style;
+            ctx.fillRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
         } else {
-            gameObject.layer.strokeStyle = this.style;
-            gameObject.layer.strokeRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
+            ctx.strokeStyle = this.style;
+            ctx.strokeRect(gameObject.screenLocation.x, gameObject.screenLocation.y, gameObject.size.width, gameObject.size.height);
         }
     }
 }
@@ -218,15 +228,16 @@ class TextRenderer
     }
 
     render(gameObject) {
-        gameObject.layer.textAlign = this.textAlign;
-        gameObject.layer.textBaseline = this.textBaseline;
-        gameObject.layer.font = this.font;
+        let ctx = gameObject.getLayer();
+        ctx.textAlign = this.textAlign;
+        ctx.textBaseline = this.textBaseline;
+        ctx.font = this.font;
         if (this.fill) {
-            gameObject.layer.fillStyle = this.style;
-            gameObject.layer.fillText(gameObject.text, gameObject.screenLocation.x, gameObject.screenLocation.y);
+            ctx.fillStyle = this.style;
+            ctx.fillText(gameObject.text, gameObject.screenLocation.x, gameObject.screenLocation.y);
         } else {
-            gameObject.layer.strokeStyle = this.style;
-            gameObject.layer.strokeText(gameObject.text, gameObject.screenLocation.x, gameObject.screenLocation.y);
+            ctx.strokeStyle = this.style;
+            ctx.strokeText(gameObject.text, gameObject.screenLocation.x, gameObject.screenLocation.y);
         }
     }
 }
@@ -241,15 +252,16 @@ class ArcRenderer
     }
 
     render(gameObject) {
-        gameObject.layer.lineWidth = this.thickness;
-        gameObject.layer.beginPath();
-        gameObject.layer.arc(gameObject.screenLocation.x, gameObject.screenLocation.y, this.radius, gameObject.startAngle, gameObject.endAngle, true);
+        let ctx = gameObject.getLayer();
+        ctx.lineWidth = this.thickness;
+        ctx.beginPath();
+        ctx.arc(gameObject.screenLocation.x, gameObject.screenLocation.y, this.radius, gameObject.startAngle, gameObject.endAngle, true);
         if (this.fill) {
-            gameObject.layer.fillStyle = this.style;
-            gameObject.layer.fill();
+            ctx.fillStyle = this.style;
+            ctx.fill();
         } else {
-            gameObject.layer.strokeStyle = this.style;
-            gameObject.layer.stroke();
+            ctx.strokeStyle = this.style;
+            ctx.stroke();
         }
     }
 }
@@ -269,19 +281,11 @@ class Player extends GameObject
     }
 
     addMinion(minion) {
-        let added = this.reserve.addMinion(minion);
-        if (added) {
-            this.minions.push(minion);
-            minion.owner = this;
-        }
-        return added;
+        this.minions.push(minion);
     }
 
     removeMinion(minion) {
-        if (arrayRemove(this.minions, minion)) {
-            minion.parent.removeComponent(minion);
-            minion.owner = null;
-        }
+        arrayRemove(this.minions, minion);
     }
 }
 
@@ -320,11 +324,12 @@ class HealthBarRenderer
 
     render(gameObject) {
         const left = gameObject.screenLocation.x - this.width / 2.0;
-        gameObject.layer.fillStyle = "red";
-        gameObject.layer.fillRect(left, gameObject.screenLocation.y, this.width, this.height);
-        gameObject.layer.fillStyle = "green";
+        let ctx = gameObject.getLayer();
+        ctx.fillStyle = "red";
+        ctx.fillRect(left, gameObject.screenLocation.y, this.width, this.height);
+        ctx.fillStyle = "green";
         const percentLife = gameObject.health / gameObject.maxHealth;
-        gameObject.layer.fillRect(left, gameObject.screenLocation.y, this.width*percentLife, this.height);
+        ctx.fillRect(left, gameObject.screenLocation.y, this.width*percentLife, this.height);
     }
 }
 
@@ -333,10 +338,10 @@ class PlayerReserve extends GameObject
 {
     constructor(player, minionCount) {
         super();
-        this.renderer = new PlayerReserveRenderer(player.colorIdentifier);
+        this.renderer = new PlayerReserveRenderer(player);
 
         minionCount = minionCount || 3;
-        this.owner = player;
+        this.player = player;
         const size = {width: 50,height:50};
         this.slots = [];
         for(let i = 0; i < minionCount; i++) {
@@ -347,17 +352,6 @@ class PlayerReserve extends GameObject
             this.addComponent(slot);
         }
     }
-
-    addMinion(minion) {
-        for(let i = 0; i < this.slots.length; i++) {
-            let slot = this.slots[i];
-            if (!slot.isOccupied()) {
-                slot.setMinion(minion);
-                return true;
-            }
-        }
-        return false;
-    }
 }
 
 class PlayerReserveSlot extends GameObject
@@ -366,52 +360,34 @@ class PlayerReserveSlot extends GameObject
         super();
         this.renderer = new RectRenderer("black", false);
         this.minion = null;
-        this.owner = playerReserve.owner;
-        gameState.setDroppable(this);
+        this.player = playerReserve.player;
     }
 
     setMinion(minion) {
         this.addComponent(minion);
         this.minion = minion;
-        this.minion.owner = this.owner;
-        gameState.setInteractable(minion);
         minion.location = {x:0,y:0};
     }
 
     removeMinion() {
         this.removeComponent(this.minion);
-        gameState.disableInteractable(this.minion);
         this.minion = null;
     }
 
     isOccupied() {
         return this.components.length > 0;
     }
-
-    handleDrop(dragInfo) {
-        const gameObject = dragInfo.object;
-        if (!(gameObject instanceof Minion)) return;
-        if (this.minion) {
-            dragInfo.originalContainer.setMinion(this.minion);
-        } else {
-            dragInfo.originalContainer.removeMinion();
-        }
-        this.setMinion(gameObject);
-    }
 }
 
 class PlayerReserveRenderer
 {
-    constructor(colorIdentifier) {
-        this.colorIdentifier = colorIdentifier;
-    }
-
     render(gameObject) {
-        gameObject.layer.fillStyle = this.colorIdentifier;
+        let ctx = gameObject.getLayer();
+        ctx.fillStyle = gameObject.player.colorIdentifier;
         const sl = gameObject.screenLocation;
         const s = gameObject.size;
         const pad = PlayerReservePadding;
-        gameObject.layer.fillRect(sl.x-pad, sl.y-pad, s.width+pad+pad, s.height+pad+pad);
+        ctx.fillRect(sl.x-pad, sl.y-pad, s.width+pad+pad, s.height+pad+pad);
     }
 }
 
@@ -434,11 +410,10 @@ class Minion extends GameObject
         this.attackSpeed = attack_speed;
         this.size = {height:50,width:50};
         this.renderer = new MinionRenderer();
-        this.owner = null;
         this.minionInfo = new MinionInfo(this);
         this.addComponent(this.minionInfo);
 
-        this.addHandler("rightmousedown", coords => this.minionInfo.toggleVisible());
+        this.addHandler("info", coords => this.minionInfo.toggleVisible());
     }
 }
 
@@ -514,11 +489,12 @@ class MinionInfoRenderer
         let right = left + this.width;
         let center = left + this.width/2;
         // box
-        gameObject.layer.fillStyle = rarityColors[minion.rarity];
-        gameObject.layer.fillRect(left, top, this.width, this.height);
+        let ctx = gameObject.getLayer();
+        ctx.fillStyle = rarityColors[minion.rarity];
+        ctx.fillRect(left, top, this.width, this.height);
         // name
         let textObj = new GameObject();
-        textObj.layer = gameObject.layer;
+        textObj.layer = ctx;
         textObj.screenLocation = {x:center,y:top+padding};
         textObj.text = minion.name;
         this.textRenderer.textAlign = "center";
@@ -578,12 +554,13 @@ class BoardRenderer
     render(gameObject) {
         const sl = gameObject.screenLocation;
         const s = gameObject.size;
-        gameObject.layer.fillStyle = this.p2Color;
-        gameObject.layer.fillRect(sl.x, sl.y, s.width, s.height);
-        gameObject.layer.fillStyle = this.p1Color;
-        gameObject.layer.fillRect(sl.x, sl.y, s.width/2, s.height);
-        gameObject.layer.strokeStyle = "black";
-        gameObject.layer.strokeRect(sl.x, sl.y, s.width, s.height);
+        let ctx = gameObject.getLayer();
+        ctx.fillStyle = this.p2Color;
+        ctx.fillRect(sl.x, sl.y, s.width, s.height);
+        ctx.fillStyle = this.p1Color;
+        ctx.fillRect(sl.x, sl.y, s.width/2, s.height);
+        ctx.strokeStyle = "black";
+        ctx.strokeRect(sl.x, sl.y, s.width, s.height);
     }
 }
 
@@ -591,14 +568,13 @@ class BoardGrid extends GameObject
 {
     constructor(player) {
         super();
-        this.owner = player;
+        this.player = player;
         for(let r = 0; r < 4; r++) {
             for(let c = 0; c < 5; c++) {
                 let cell = new BoardCell(this);
                     cell.size = {width:100,height:95};
                     cell.location = {x:100*c,y:95*r};
                 this.addComponent(cell);
-                gameState.setDroppable(cell);
             }
         }
     }
@@ -610,35 +586,22 @@ class BoardCell extends GameObject
         super();
         this.renderer = new RectRenderer("lightgray", false);
         this.minion = null;
-        this.owner = boardGrid.owner;
+        this.player = boardGrid.player;
     }
 
     setMinion(minion) {
         this.addComponent(minion);
         this.minion = minion;
-        gameState.setInteractable(minion);
         minion.location = {x:25,y:22};
     }
 
     removeMinion() {
         this.removeComponent(this.minion);
-        gameState.disableInteractable(this.minion);
         this.minion = null;
     }
 
     isOccupied() {
         return this.components.length > 0;
-    }
-
-    handleDrop(dragInfo) {
-        const gameObject = dragInfo.object;
-        if (!(gameObject instanceof Minion)) return;
-        if (this.minion) {
-            dragInfo.originalContainer.setMinion(this.minion);
-        } else {
-            dragInfo.originalContainer.removeMinion();
-        }
-        this.setMinion(gameObject);
     }
 }
 
@@ -650,51 +613,21 @@ const runGame = function() {
 };
 const initializeInteraction = function() {
     function prevDef(e) { e.preventDefault(); return false; }
-    canvas.addEventListener('selectstart', prevDef, false);
-    canvas.addEventListener('contextmenu', prevDef, false);
-    const drag = { object: null, originalContainer: null, originalLocation: null };
-    const startDrag = function(gameObject, mouseCoords) {
-        drag.object = gameObject;
-        drag.originalLocation = gameObject.location;
-        drag.originalContainer = gameObject.parent;
-        gameState.mouseObject.addComponent(gameObject);
-        let sl = gameObject.screenLocation;
-        gameObject.location = {x:sl.x-mouseCoords.x,y:sl.y-mouseCoords.y};
-    };
     const fireMouseEvent = function(name, e) {
         const mouseData = {x:e.offsetX, y:e.offsetY};
         let objects = [];
         gameState.scene.getObjectsAt(mouseData, objects);
         while(objects.length > 0) {
-            // todo: consider allowing a stop bubbling condition?
-            // modeled as a stack in the render order so you process things on top first
             objects.pop().handle(name, mouseData);
         }
     };
-    canvas.addEventListener('mousedown', function(e) {
-        if (e.button == 2) fireMouseEvent("rightmousedown", e);
-        if (e.button == 0) fireMouseEvent("leftmousedown", e);
-
-        const mouseCoords = {x:e.offsetX, y:e.offsetY};
-        let obj = gameState.getInteractableObject(mouseCoords);
-        if (e.button == 0 && obj && obj.owner == gameState.player1 && obj.parent != gameState.mouseObject) {
-            startDrag(obj, mouseCoords);
-        }
-    });
     canvas.addEventListener('mousemove', e => fireMouseEvent("mousemove", e));
     canvas.addEventListener('mouseup', function(e) {
-        const mouseCoords = {x:e.offsetX, y:e.offsetY};
-        let obj = gameState.getDroppableObject(mouseCoords);
-        if (e.button == 0 && obj && obj.handleDrop && obj.owner == gameState.player1) {
-            obj.handleDrop(drag);
-        }
-        if (drag.object == null) return;
-        if (drag.object.parent == gameState.mouseObject) {
-            drag.originalContainer.addComponent(drag.object);
-            drag.object.location = drag.originalLocation;
-        }
-        drag.object = null;
-    });
+        if (e.button == 2) fireMouseEvent("info", e);
+        if (e.button == 0) fireMouseEvent("interact", e);
+    }, true);
+    canvas.addEventListener('selectstart', prevDef, false);
+    canvas.addEventListener('contextmenu', prevDef, false);
 };
 const arrayRemove = function(array, value) {
     var index = array.indexOf(value);
@@ -704,6 +637,9 @@ const arrayRemove = function(array, value) {
     return index > -1;
 };
 const initializeGameState = function() {
+    gameState = {};
+
+    // timing and perf
     const time = performance.now();
     let times = [];
     for(var i = 0; i < 99; i++) times.push(time);
@@ -713,40 +649,7 @@ const initializeGameState = function() {
         frameRate: 0,
     };
 
-    const mouseObject = gameState.mouseObject = new GameObject();
-        // mouseObject.renderer = new RectRenderer("red", "true");
-        // mouseObject.size = {width:50,height:50};
-
-    const getObjectAtLocation = function(objects, coords) {
-        for(let i = 0; i < objects.length; i++) {
-            let gameObject = objects[i];
-            let x = coords.x;
-            let y = coords.y;
-            let sl = gameObject.screenLocation;
-            let size = gameObject.size;
-            if (x < sl.x || x > (sl.x + size.width)) continue;
-            if (y < sl.y || y > (sl.y + size.height)) continue;
-            return gameObject;
-        }
-        return null;
-    };
-    const interactable = gameState.interactable = [];
-    gameState.setInteractable = function(gameObject) {
-        if (interactable.indexOf(gameObject) < 0) {
-            interactable.push(gameObject);
-        }
-    };
-    gameState.disableInteractable = gameObject => arrayRemove(interactable, gameObject);
-    gameState.getInteractableObject = coords => getObjectAtLocation(interactable, coords);
-    const droppable = gameState.droppable = [];
-    gameState.setDroppable = function(gameObject) {
-        if (droppable.indexOf(gameObject) < 0) {
-            droppable.push(gameObject);
-        }
-    };
-    gameState.disableDroppable = gameObject => arrayRemove(droppable, gameObject);
-    gameState.getDroppableObject = coords => getObjectAtLocation(droppable, coords);
-
+    // game stuff
     const p1 = gameState.player1 = new Player("player", "😃", "wheat");
     const p2 = gameState.player2 = new Player("computer", "🧠", "lavender");
 
@@ -776,6 +679,39 @@ const initializeGameState = function() {
         new Minion("Knowledge", "🐌", "Concept", "Engineer", "Common", 800, 1400, 1400, 1925, 6000, 938, 0.90),
         new Minion("Religion", "🦈", "Concept", "Dormant", "Common", 1100, 1575, 1000, 2625, 10125, 900, 0.81),
     ];
+
+    // drag state
+    const drag = gameState.dragState = {
+        object: null,
+        returnLocation: null,
+        returnObject: null,
+        handled: false,
+    };
+    drag.clear = function() {
+        let o = drag.object;
+        if (o) {
+            o.location = drag.returnLocation;
+            drag.returnObject.addComponent(o);
+        }
+        drag.object = null;
+        drag.returnLocation = null;
+        drag.returnObject = null;
+    };
+    drag.start = function(mouseInfo, minion) {
+        if (!drag.handled && drag.object) {
+            drag.clear();
+            return;
+        }
+        if (minion.parent.player != p1) return;
+        drag.handled = true;
+        drag.object = minion;
+        drag.returnLocation = minion.location;
+        drag.returnObject = minion.parent;
+        let sl = minion.screenLocation;
+        minion.location = {x:sl.x-mouseInfo.x,y:sl.y-mouseInfo.y};
+        gameState.scene.mouseObject.addComponent(minion);
+    }
+    minions.forEach(m => m.addHandler("interact", mouseInfo => drag.start(mouseInfo, m)));
 
 
     // game scene
@@ -848,19 +784,10 @@ const initializeGameState = function() {
         };
     heroCenter.addComponent(p2Reserve);
 
-    // testing
-    p1.addMinion(minions[0]);
-    p1.addMinion(minions[2]);
-    p1.addMinion(minions[5]);
-    p2.addMinion(minions[15]);
-    p2.addMinion(minions[4]);
-    p2.addMinion(minions[3]);
-
     const minionPlacementTimer = new Timer(5000);
         minionPlacementTimer.renderer = new CircularCountdownTimerRenderer(55, 7);
         minionPlacementTimer.location = {x:0,y:heroBox.size.height/2};
         minionPlacementTimer.addHandler("timer", runCombat);
-        // TODO: handle timer event
     heroCenter.addComponent(minionPlacementTimer);
     scene.addHandler("activate", _ => minionPlacementTimer.start());
 
@@ -871,14 +798,13 @@ const initializeGameState = function() {
     // start button
     let startGameButton = new Button("Start Game!", 400, 100, "20px Arial", "white", "green");
         startGameButton.location = {x:350,y:250};
-        startGameButton.addHandler("leftmousedown", startNewEpisode);
+        startGameButton.addHandler("interact", startNewEpisode);
     scene.addComponent(startGameButton);
 
 
     // set the current scene
     gameState.setScene = function(scene) {
         gameState.scene = scene;
-        scene.addComponent(mouseObject);
         scene.handle("activate", null);
     }
     gameState.setScene(gameState.introScene);
@@ -892,8 +818,8 @@ const runCombat = function() {
     let damage = (Math.random() * 0.1 + 0.06) * player.maxHealth;
     player.health -= Math.min(player.health, damage);
     if (player.health <= 0) {
-        console.log("end of game");
-        setTimeout(() => gameState.setScene(gameState.introScene), 10000);
+        console.log("TODO: end of game animation");
+        setTimeout(initializeGameState, 10000);
         return;
     }
     let firstSelection = p1.health <= p2.health ? p1 : p2;
@@ -915,8 +841,8 @@ const makeMinionSelectionScene = function(firstChoice, secondChoice) {
         p1Inventory.location = {x:centerX - 510/2, y:420};
         for(let i = 0; i < p1.minions.length; i++) {
             let minion = p1.minions[i];
-            minion.lastParent = minion.parent;
-            p1Inventory.addMinion(minion);
+            minion.gameParent = minion.parent;
+            p1Inventory.slots[i].setMinion(minion);
         }
     scene.addComponent(p1Inventory);
 
@@ -926,20 +852,18 @@ const makeMinionSelectionScene = function(firstChoice, secondChoice) {
         p2Inventory.location = {x:centerX - 510/2, y:120};
         for(let i = 0; i < p2.minions.length; i++) {
             let minion = p2.minions[i];
-            minion.lastParent = minion.parent;
-            p2Inventory.addMinion(minion);
+            minion.gameParent = minion.parent;
+            p2Inventory.slots[i].setMinion(minion);
         }
     scene.addComponent(p2Inventory);
 
     // pass button
     let passButton = new Button("SKIP", 100, 50, "20px Arial", "white", "coral");
         passButton.location = {x:900,y:420};
-        passButton.addHandler("leftmousedown", endMinionSelection);
+        passButton.addHandler("interact", endMinionSelection);
     scene.addComponent(passButton);
 
     // options placeholders
-    gameState.gameInteractable = gameState.interactable;
-    let selectionDraggable = gameState.interactable = [];
     let pSelection = firstChoice;
     let pSelectionInventory = new PlayerReserve(pSelection, 2);
         pSelectionInventory.size = {width:120,height:50};
@@ -947,9 +871,8 @@ const makeMinionSelectionScene = function(firstChoice, secondChoice) {
         let minionOptions = getMinionOptions(2);
         for(let i = 0; i < minionOptions.length; i++) {
             let minion = minionOptions[i];
-            selectionDraggable.push(minion);
-            minion.lastParent = null;
-            pSelectionInventory.addMinion(minion);
+            minion.gameParent = null;
+            pSelectionInventory.slots[i].setMinion(minion);
         }
     scene.addComponent(pSelectionInventory);
 
@@ -959,12 +882,15 @@ const makeMinionSelectionScene = function(firstChoice, secondChoice) {
 }
 const getMinionOptions = function(count) {
     let rarityWeights = {"Common": 10, "Rare": 4, "Epic": 1};
+    let invalid = new Set();
+    gameState.player1.minions.forEach(m => invalid.add(m));
+    gameState.player2.minions.forEach(m => invalid.add(m));
     let results = [];
     for(let x = 0; x < count; x++) {
         let total = 0;
         for(let i = 0; i < gameState.minions.length; i++) {
             let minion = gameState.minions[i];
-            if (minion.owner || results.indexOf(minion) >= 0) continue;
+            if (invalid.has(minion)) continue;
             total += rarityWeights[minion.rarity];
         }
         let value = Math.random() * total;
@@ -972,13 +898,14 @@ const getMinionOptions = function(count) {
         let selectionIndex = 0;
         for(; selectionIndex < gameState.minions.length; selectionIndex++) {
             let minion = gameState.minions[selectionIndex];
-            if (minion.owner || results.indexOf(minion) >= 0) continue;
+            if (invalid.has(minion)) continue;
             total += rarityWeights[minion.rarity];
             if (value < total) break;
         }
         selectionIndex = Math.min(selectionIndex, gameState.minions.length-1);
         let selection = gameState.minions[selectionIndex];
         results.push(selection);
+        invalid.add(selection);
     }
     return results;
 };
@@ -986,13 +913,15 @@ const endMinionSelection = function() {
     function returnMinionsToGame(player) {
         for(let i = 0; i < player.minions.length; i++) {
             let minion = player.minions[i];
-            minion.lastParent.addComponent(minion);
+            if (minion.gameParent) {
+                minion.gameParent.addComponent(minion);
+            }
         }
     }
     returnMinionsToGame(gameState.player1);
     returnMinionsToGame(gameState.player2);
-    gameState.interactable = gameState.gameInteractable;
     gameState.setScene(gameState.gameScene);
+    return true;
 };
 const startNewEpisode = function() {
     let minionSelectionScene = makeMinionSelectionScene(gameState.player1);
@@ -1001,6 +930,7 @@ const startNewEpisode = function() {
 const mainGameLoop = function() {
     // update
     updateStats(gameState.stats);
+    gameState.dragState.handled = false;
     gameState.scene.update();
     // render
     uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
